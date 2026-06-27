@@ -1,0 +1,15 @@
+---
+- name: Configure DevOps Server
+  hosts: jenkins_server
+  become: true
+
+  tasks:
+
+    - name: Install Docker
+      include_tasks: playbooks/install_docker.yml
+
+    - name: Install Python Docker SDK
+      include_tasks: playbooks/install_python_docker.yml
+
+    - name: Install Jenkins Container
+      include_tasks: playbooks/install_jenkins_docker.yml
