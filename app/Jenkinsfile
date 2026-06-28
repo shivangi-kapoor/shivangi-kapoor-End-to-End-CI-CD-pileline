@@ -1,8 +1,10 @@
+```groovy
 pipeline {
     agent any
 
     environment {
         IMAGE_NAME = "flask-devops-app"
+        DOCKERHUB_REPO = "shivix/flask-devops-app"
         CONTAINER_NAME = "flask-demo"
     }
 
@@ -19,6 +21,40 @@ pipeline {
                 dir('app') {
                     sh 'docker build -t $IMAGE_NAME .'
                 }
+            }
+        }
+
+        stage('Tag Docker Image') {
+            steps {
+                sh '''
+                docker tag $IMAGE_NAME $DOCKERHUB_REPO:latest
+                docker tag $IMAGE_NAME $DOCKERHUB_REPO:$BUILD_NUMBER
+                '''
+            }
+        }
+
+        stage('Login to Docker Hub') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-creds',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+                    sh '''
+                    echo "$DOCKER_PASS" | docker login \
+                    -u "$DOCKER_USER" \
+                    --password-stdin
+                    '''
+                }
+            }
+        }
+
+        stage('Push Docker Image') {
+            steps {
+                sh '''
+                docker push $DOCKERHUB_REPO:latest
+                docker push $DOCKERHUB_REPO:$BUILD_NUMBER
+                '''
             }
         }
 
@@ -51,26 +87,12 @@ pipeline {
         failure {
             echo 'Pipeline failed.'
         }
+
+        always {
+            sh 'docker logout || true'
+        }
     }
 }
 
 // trying webhook now
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+```
