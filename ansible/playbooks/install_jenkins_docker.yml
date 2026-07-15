@@ -5,18 +5,30 @@
     state: directory
     owner: "1000"
     group: "1000"
-    mode: '0755'
+    mode: "0755"
 
 - name: Pull Jenkins image
-  shell: docker pull jenkins/jenkins:lts
+  community.docker.docker_image:
+    name: jenkins/jenkins
+    tag: lts
+    source: pull
 
-- name: Run Jenkins container
-  shell: |
-    docker run -d \
-      --name jenkins \
-      --restart unless-stopped \
-      -p 8080:8080 \
-      -p 50000:50000 \
-      -v /opt/jenkins_home:/var/jenkins_home \
-      jenkins/jenkins:lts
+- name: Remove existing Jenkins container (if present)
+  community.docker.docker_container:
+    name: jenkins
+    state: absent
+  ignore_errors: yes
+
+- name: Start Jenkins container
+  community.docker.docker_container:
+    name: jenkins
+    image: jenkins/jenkins:lts
+    state: started
+    recreate: yes
+    restart_policy: unless-stopped
+    published_ports:
+      - "8080:8080"
+      - "50000:50000"
+    volumes:
+      - "/opt/jenkins_home:/var/jenkins_home"
   ignore_errors: yes
