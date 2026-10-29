@@ -1,6 +1,6 @@
 
 pipeline {
-    agent any
+    agent none
 
     options {
         skipDefaultCheckout(true)
@@ -9,47 +9,36 @@ pipeline {
     }
 
     environment {
-        IMAGE_NAME = 'flask-devops-app'
         DOCKERHUB_REPO = 'shivix/flask-devops-app'
-        CONTAINER_NAME = 'flask-demo'
+        K8S_NAMESPACE = 'flask-cicd'
+        K8S_DEPLOYMENT = 'flask-app'
     }
 
     stages {
+        stage('Build Docker Image') {
+            agent {
+                label 'docker-build'
+            }
 
-        stage('Checkout Code') {
             steps {
                 checkout scm
-                echo 'GitHub repository checked out successfully.'
-            }
-        }
 
-        stage('Build Docker Image') {
-            steps {
                 dir('app') {
                     sh '''
                         set -e
-
                         docker build \
                           -t "${DOCKERHUB_REPO}:build-${BUILD_NUMBER}" \
-                          -t "${IMAGE_NAME}:latest" \
                           .
                     '''
                 }
             }
         }
 
-        stage('Verify Docker Image') {
-            steps {
-                sh '''
-                    set -e
-
-                    docker image inspect \
-                      "${DOCKERHUB_REPO}:build-${BUILD_NUMBER}"
-                '''
+        stage('Push to Docker Hub') {
+            agent {
+                label 'docker-build'
             }
-        }
 
-        stage('Login to Docker Hub') {
             steps {
                 withCredentials([
                     usernamePassword(
@@ -60,62 +49,68 @@ pipeline {
                 ]) {
                     sh '''
                         set -e
+                        printf '%s' "$DOCKER_PASS" | \
+                          docker login -u "$DOCKER_USER" --password-stdin
 
-                        printf '%s' "$DOCKER_PASS" |
-                          docker login \
-                            -u "$DOCKER_USER" \
-                            --password-stdin
+                        docker push \
+                          "${DOCKERHUB_REPO}:build-${BUILD_NUMBER}"
                     '''
+                }
+            }
+
+            post {
+                always {
+                    sh 'docker logout || true'
                 }
             }
         }
 
-        stage('Push Docker Image') {
-            steps {
-                sh '''
-                    set -e
-
-                    docker push \
-                      "${DOCKERHUB_REPO}:build-${BUILD_NUMBER}"
-                '''
+        stage('Deploy to Kubernetes') {
+            agent {
+                label 'k8s-deploy'
             }
-        }
 
-        stage('Deploy Flask on EC2') {
             steps {
                 sh '''
                     set -e
 
-                    docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
+                    test "$(kubectl config current-context)" = "kind-cicd-lab"
 
-                    docker run -d \
-                      --name "$CONTAINER_NAME" \
-                      --restart unless-stopped \
-                      -p 5000:5000 \
-                      "${DOCKERHUB_REPO}:build-${BUILD_NUMBER}"
+                    kubectl set image deployment/flask-app \
+                      flask-app="${DOCKERHUB_REPO}:build-${BUILD_NUMBER}" \
+                      -n "${K8S_NAMESPACE}"
+
+                    kubectl rollout status deployment/flask-app \
+                      -n "${K8S_NAMESPACE}" \
+                      --timeout=180s
                 '''
             }
         }
 
         stage('Verify Deployment') {
+            agent {
+                label 'k8s-deploy'
+            }
+
             steps {
                 sh '''
                     set -e
 
-                    echo "Checking Flask container..."
+                    EXPECTED="${DOCKERHUB_REPO}:build-${BUILD_NUMBER}"
 
-                    docker ps \
-                      --filter "name=^/${CONTAINER_NAME}$"
+                    ACTUAL=$(kubectl get deployment flask-app \
+                      -n "${K8S_NAMESPACE}" \
+                      -o jsonpath='{.spec.template.spec.containers[0].image}')
 
-                    echo "Waiting for application startup..."
+                    test "$ACTUAL" = "$EXPECTED"
 
-                    sleep 5
+                    kubectl wait \
+                      --for=condition=available \
+                      deployment/flask-app \
+                      -n "${K8S_NAMESPACE}" \
+                      --timeout=120s
 
-                    docker inspect \
-                      -f '{{.State.Running}}' "$CONTAINER_NAME" |
-                      grep -qx true
-
-                    echo "Flask container is running."
+                    kubectl get pods -n "${K8S_NAMESPACE}"
                 '''
             }
         }
@@ -123,16 +118,11 @@ pipeline {
 
     post {
         success {
-            echo "CI/CD pipeline completed successfully."
-            echo "Image: ${DOCKERHUB_REPO}:build-${BUILD_NUMBER}"
+            echo "Successfully deployed ${DOCKERHUB_REPO}:build-${BUILD_NUMBER}"
         }
 
         failure {
             echo 'Pipeline failed. Check the console output.'
-        }
-
-        always {
-            sh 'docker logout || true'
         }
     }
 }
