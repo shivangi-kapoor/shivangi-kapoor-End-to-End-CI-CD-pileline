@@ -2,6 +2,10 @@ from flask import Flask
 
 app = Flask(__name__)
 
+from prometheus_flask_exporter import PrometheusMetrics
+
+metrics = PrometheusMetrics(app)
+
 @app.route("/")
 def home():
     return "Hello from my End-to-End DevOps CI/CD Pipeline!"
