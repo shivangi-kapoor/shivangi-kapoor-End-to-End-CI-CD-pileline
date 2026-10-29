@@ -1,0 +1,19 @@
+
+# Terraform local files
+**/.terraform/
+**/*.tfstate
+**/*.tfstate.*
+**/.terraform.tfstate.lock.info
+
+# Secrets
+.env
+.env.*
+*.pem
+*.key
+kubeconfig
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+shivangi-kapoor-End-to-End-CI-CD-pileline/
